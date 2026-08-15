@@ -152,4 +152,26 @@ describe('L1Verifier', () => {
     expect(result).to.equal('Johnson');
   });
 
+  it('will subtract from the slot using a negative offset', async () => {
+    const result = await target.getStructNegativeOffsetValue(1, {
+      enableCcipRead: true,
+    });
+    expect(Number(result)).to.equal(1337);
+  });
+
+  it('will read a dynamic value reached via a negative offset', async () => {
+    const result = await target.getStructLatestMappedValueViaNegativeOffset(
+      'Nick',
+      { enableCcipRead: true }
+    );
+    expect(result).to.equal('Johnson');
+  });
+
+  it('wraps the slot on overflow and underflow', async () => {
+    const result = await target.getLatestViaWrappedOffset({
+      enableCcipRead: true,
+    });
+    expect(Number(result)).to.equal(42);
+  });
+
 });

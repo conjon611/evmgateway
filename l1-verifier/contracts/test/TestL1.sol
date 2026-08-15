@@ -142,4 +142,33 @@ contract TestL1 is EVMFetchTarget {
         return string(values[1]);
     }
 
+    function getStructNegativeOffsetValue(uint256 structsKey) public view returns (uint256) {
+        EVMFetcher.newFetchRequest(verifier, target)
+            .getStatic(6)
+                .element(structsKey)
+                .offset(3)
+                .offsetSigned(-2) // net offset of 1 => S.offsetValue
+            .fetch(this.getStructOffsetValueCallback.selector, "");
+    }
+
+    function getStructLatestMappedValueViaNegativeOffset(string memory valuesKey) public view returns (string memory) {
+        EVMFetcher.newFetchRequest(verifier, target)
+            .getStatic(0) // #0 => latest
+            .getDynamic(6) // #1 => map[#0].map[k] => string
+                .ref(0)
+                .offset(5)
+                .offsetSigned(-3) // net offset of 2 => S.mappedValues
+                .element(valuesKey)
+            .fetch(this.getStructLatestMappedValueCallback.selector, "");
+    }
+
+    function getLatestViaWrappedOffset() public view returns (uint256) {
+        // Slot 0 - 1 wraps to type(uint256).max, and adding 1 wraps back around to slot 0.
+        EVMFetcher.newFetchRequest(verifier, target)
+            .getStatic(0)
+                .offsetSigned(-1)
+                .offset(1)
+            .fetch(this.getLatestCallback.selector, "");
+    }
+
 }

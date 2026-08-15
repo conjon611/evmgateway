@@ -183,7 +183,12 @@ export class EVMGateway<T extends ProvableBlock> {
           break;
         }
         case OP_ADD_CONST: {
-          slot += uint256FromBytes(constants[operand]);
+          // Mirrors the `unchecked` addition in EVMProofHelper.computeFirstSlot(): the
+          // sum wraps modulo 2^256, so a two's-complement constant subtracts from the slot.
+          slot = BigInt.asUintN(
+            256,
+            slot + uint256FromBytes(constants[operand])
+          );
           break;
         }
         default:

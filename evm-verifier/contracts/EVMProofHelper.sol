@@ -75,8 +75,11 @@ library EVMProofHelper {
             } else if (opcode == OP_FOLLOW_REF) { // jump through mapping using computed key
                 slot = uint256(keccak256(abi.encodePacked(values[operand], slot)));
             } else if (opcode == OP_ADD_CONST) { // increment slot by provided amount
-                // TODO this could be unchecked to support subtraction (via wrap)
-                slot += uint256FromBytes(constants[operand]);
+                // Deliberately unchecked: wrapping lets a caller subtract from the slot by
+                // supplying the two's-complement representation of a negative offset.
+                unchecked {
+                    slot += uint256FromBytes(constants[operand]);
+                }
             } else {
                 revert UnknownOpcode(op);
             }

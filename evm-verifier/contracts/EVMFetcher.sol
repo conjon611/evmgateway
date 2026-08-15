@@ -187,10 +187,29 @@ library EVMFetcher {
 
     /**
      * @dev Increment the current slot by offset.
+     *      Offsets are applied with wrapping arithmetic, so `type(uint256).max` decrements the
+     *      slot by one. Use `offsetSigned` to express negative offsets directly.
      * @param request The request object being operated on.
      * @param off The relative slot offset.
      */
     function offset(EVMFetchRequest memory request, uint256 off) internal pure returns (EVMFetchRequest memory) {
+        if(request.operationIdx >= 32) {
+            revert CommandTooLong();
+        }
+        _addOperation(request, OP_ADD_CONST | _addConstant(request, abi.encode(off)));
+        return request;
+    }
+
+    /**
+     * @dev Adjust the current slot by a signed offset, decrementing it when `off` is negative.
+     *      This is a convenience wrapper around `offset`: negative values are encoded as their
+     *      two's-complement representation, which the VM applies with wrapping arithmetic.
+     *      A separate name is required because overloading `offset` on `int256` would make
+     *      existing calls that pass a number literal ambiguous.
+     * @param request The request object being operated on.
+     * @param off The relative slot offset, which may be negative.
+     */
+    function offsetSigned(EVMFetchRequest memory request, int256 off) internal pure returns (EVMFetchRequest memory) {
         if(request.operationIdx >= 32) {
             revert CommandTooLong();
         }
