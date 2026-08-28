@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "scripts": {
     "build": "echo 'building op-verifier...' && bun hardhat compile",
-    "test": "echo hardhat test",
+    "test": "hardhat test test/unit/*.ts",
+    "test:devnet": "hardhat test test/devnet/*.ts --network opDevnetL1",
     "clean": "rm -fr artifacts cache node_modules typechain-types",
     "lint": "exit 0"
   },

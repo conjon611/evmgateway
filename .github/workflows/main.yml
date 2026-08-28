@@ -49,5 +49,8 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Check for no-op test scripts
+        run: bun run test:scripts
+
       - name: Lint
         run: bun run lint
