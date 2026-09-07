@@ -16,6 +16,29 @@ const OP_FOLLOW_REF = 1 << 5;
 const OP_ADD_CONST = 2 << 5;
 const OP_END = 0xff;
 
+/**
+ * Limits on the caller-supplied parts of a `getStorageSlots` request.
+ *
+ * The on-chain client library (EVMFetcher.sol) already caps itself at 32
+ * commands and 32 constants, but the gateway is an unauthenticated HTTP
+ * endpoint that anyone can call directly without going through that library,
+ * so it has to enforce the same bounds itself.
+ */
+const MAX_COMMANDS = 32;
+const MAX_CONSTANTS = 32;
+
+/**
+ * The byte length of a dynamic value is read from a storage slot of the
+ * contract named in the request, so it is fully attacker-controlled: a
+ * contract can write an arbitrary 256-bit word there and claim a length of up
+ * to 2^255. Without a cap, `getDynamicValue` would allocate an array of that
+ * many slot numbers and then issue one RPC call per slot, exhausting the
+ * gateway's memory and flooding its upstream provider.
+ *
+ * 1024 slots is 32KB of data, far more than any real record needs.
+ */
+const MAX_DYNAMIC_SLOTS = 1024;
+
 export enum StorageLayout {
   /**
    * address,uint,bytes32,bool
@@ -54,6 +77,18 @@ function memoize<T>(fn: () => Promise<T>): () => Promise<T> {
 // https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html#mappings-and-dynamic-arrays
 function followSolidityMapping(slot: bigint, key: string) {
   return BigInt(solidityPackedKeccak256(['bytes', 'uint256'], [key, slot]));
+}
+
+// Operands are 5 bits, so they can address 32 entries whether or not the
+// caller actually supplied that many. Reading past the end would otherwise
+// hand `undefined` to ethers and surface as an opaque 500.
+function constant(constants: string[], operand: number): string {
+  if (operand >= constants.length) {
+    throw new Error(
+      `Invalid constant: ${operand} (max ${constants.length - 1})`
+    );
+  }
+  return constants[operand];
 }
 
 // see: EVMProofHelper.uint256FromBytes()
@@ -136,6 +171,16 @@ export class EVMGateway<T extends ProvableBlock> {
     commands: string[],
     constants: string[]
   ): Promise<string> {
+    if (commands.length > MAX_COMMANDS) {
+      throw new Error(
+        `Too many commands: ${commands.length} (max ${MAX_COMMANDS})`
+      );
+    }
+    if (constants.length > MAX_CONSTANTS) {
+      throw new Error(
+        `Too many constants: ${constants.length} (max ${MAX_CONSTANTS})`
+      );
+    }
     const block = await this.proofService.getProvableBlock();
     const requests: Promise<StorageElement>[] = [];
     // For each request, spawn a promise to compute the set of slots required
@@ -174,16 +219,21 @@ export class EVMGateway<T extends ProvableBlock> {
       const operand = op & 0x1f; // lower 5
       switch (opcode) {
         case OP_FOLLOW_CONST: {
-          slot = followSolidityMapping(slot, constants[operand]);
+          slot = followSolidityMapping(slot, constant(constants, operand));
           break;
         }
         case OP_FOLLOW_REF: {
+          if (operand >= requests.length) {
+            throw new Error(
+              `Invalid reference: ${operand} (max ${requests.length - 1})`
+            );
+          }
           const storage = await requests[operand];
           slot = followSolidityMapping(slot, await storage.value());
           break;
         }
         case OP_ADD_CONST: {
-          slot += uint256FromBytes(constants[operand]);
+          slot += uint256FromBytes(constant(constants, operand));
           break;
         }
         default:
@@ -204,7 +254,17 @@ export class EVMGateway<T extends ProvableBlock> {
     // Decode Solidity dynamic value encoding
     if (firstValue[31] & 0x01) {
       // Long value: first slot is `length * 2 + 1`, following slots are data.
-      const len = (Number(toBigInt(firstValue)) - 1) / 2;
+      // `firstValue` comes from the target contract's storage, so check the
+      // claimed length against MAX_DYNAMIC_SLOTS *before* turning it into a
+      // Number or allocating anything sized by it.
+      const lenBig = (toBigInt(firstValue) - 1n) / 2n;
+      if (lenBig > BigInt(MAX_DYNAMIC_SLOTS) * 32n) {
+        throw new Error(
+          `Dynamic value at slot ${slot} claims a length of ${lenBig} bytes, ` +
+            `over the ${MAX_DYNAMIC_SLOTS * 32} byte limit`
+        );
+      }
+      const len = Number(lenBig);
       const hashedSlot = toBigInt(solidityPackedKeccak256(['uint256'], [slot]));
       const slotNumbers = Array(Math.ceil(len / 32))
         .fill(BigInt(hashedSlot))
